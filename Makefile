@@ -1,20 +1,14 @@
 # Simple makefile
 
-# Set compiler and linking variables
-CPP = cl
-CFLAGS = /nologo /W4 /EHsc /Za
+CC = gcc
+CFLAGS = -g -Wall
 
-# High level build
-build: ppmrw
+all: ppmrw
 
-# Create ppmrw.exe
-ppmrw: ppmrw.obj reader.obj writer.obj
-	$(CPP) $(CFLAGS) /Fe$@ $**
+# Create ppmrw
+ppmrw: main_program.c
+	$(CC) $(CFLAGS) main_program.c -o ppmrw
 
-# Create obj files
-ppmrw.obj: main_program.c reader.obj writer.obj
-	$(CPP) $(CFLAGS) /Fo$@ $**
-reader.obj: reader.c
-	$(CPP) $(CFLAGS) /Fo$@ $**
-writer.obj: writer.c
-	$(CPP) $(CFLAGS) /Fo$@ $**
+# Create clean
+clean:
+	-rm -rf ppmrw *~
