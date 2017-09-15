@@ -10,14 +10,15 @@
 #define DATA_STORE_ERR 3
 #define FILE_WRITE_ERR 4
 #define WRONG_FILE_TYPE 5
-#define WRONG_COLOR_VAL 6
 #define TRUE 1
 #define FALSE 0
-#define MAGIC_NUM_LEN 2
+#define MAGIC_NUM_LEN 3
 #define MAX_COLOR_STR_LEN 4
 
 // Typedef declarations
 typedef struct header header;
+typedef struct file_content file_content;
+typedef int bool;
 
 struct header {
    char magic_number[2];
@@ -26,21 +27,23 @@ struct header {
    int max_color_val;
 };
 
-typedef int bool;
+struct file_content {
+   int *content;
+   int content_num;
+};
 
 // Private forward declarations
-void read_file(char *file_name, char *file_contents, char *file_type, header *file_head, int *result);
-void store_header(FILE *file, header *file_head, char* type, int *result);
-void store_p3(FILE *file, char *file_contents, int *result);
-void store_p6(FILE *file, char *file_contents, int *result);
+void read_file(char *file_name, file_content *file_content, char *file_type, header *file_head, int *result);
+void store_file(FILE *file, header *file_head, file_content *file_content, char* type, int *result);
+void write_file(char *file_name, header *file_header, file_content *file_content, char *out_type, int *result);
 
 int main(int argc, char* argv[])
 {
    // Variable declarations
-   char *file_contents;
-   int file_open_result;
-   int file_store_result;
-   int file_write_result;
+   file_content file_content = { malloc(sizeof(int)), 0 };
+   int file_open_result = RUN_SUCCESSFUL;
+   int file_store_result = RUN_SUCCESSFUL;
+   int file_write_result = RUN_SUCCESSFUL;
    header file_header = { "", 0, 0, 0 };
 
    // Relay error message if incorrect number of arguments were entered
@@ -59,13 +62,20 @@ int main(int argc, char* argv[])
       if (strcmp(argv[1], "3") == 0 || strcmp(argv[1], "6") == 0)
       {
          // Read file contents
-         read_file(argv[2], file_contents, argv[1], &file_header, &file_open_result);
+         read_file(argv[2], &file_content, argv[1], &file_header, &file_open_result);
 
          // Determine if there was an error reading the file contents
          if (file_open_result == OPEN_FILE_ERR)
          {
             // If so, print message to user and terminate application
             printf("There was an error reading the file.\n");
+            return RUN_FAILURE;
+         }
+         // Determine if file was in incorrect format
+         else if (file_open_result == WRONG_FILE_TYPE)
+         {
+            // Print error message and return value
+            printf("The file is not the correct format.\n");
             return RUN_FAILURE;
          }
          // Determine if there was an error storing the file contents
@@ -79,7 +89,7 @@ int main(int argc, char* argv[])
          else
          {
             // Call write method depending on the type
-            //write_file(argv[2], file_contents, argv[1], &file_write_result);
+            write_file(argv[3], &file_header, &file_content, argv[1], &file_write_result);
 
             // Determine if output file method failed to execute
             if (file_write_result == FILE_WRITE_ERR)
@@ -109,7 +119,7 @@ int main(int argc, char* argv[])
 }
 
 // Central read methods. Calls submethods depending on conversion type
-void read_file(char *file_name, char *file_contents, char *file_type, header *file_head, int *result)
+void read_file(char *file_name, file_content *file_content, char *file_type, header *file_head, int *result)
 {
    // Variable declarations
    FILE *file;
@@ -121,8 +131,20 @@ void read_file(char *file_name, char *file_contents, char *file_type, header *fi
    if (file)
    {
       // Read header contents
-      store_header(file, file_head, file_type, result);
-      
+      store_file(file, file_head, file_content, file_type, result);
+
+      // Determine if file type was incorrect
+      if (*result == WRONG_FILE_TYPE)
+      {
+         *result = WRONG_FILE_TYPE;
+      }
+      // Otherwise, store success value
+      else
+      {
+         *result = RUN_SUCCESSFUL;
+      }
+
+      fclose(file);
    }
    // If not, return error code
    else
@@ -131,39 +153,69 @@ void read_file(char *file_name, char *file_contents, char *file_type, header *fi
    }
 }
 
-// Method used to read in file header and confirm correctness
-void store_header(FILE *file, header *file_head, char* type, int *result)
+// Method used to read in file contents and confirm correctness
+void store_file(FILE *file, header *file_head, file_content *file_content, char* type, int *result)
 {
    // Variable declarations
    bool reading = TRUE;
-   int iter;
    char magic_num[MAGIC_NUM_LEN];
-   char traverser;
+   char traverser = 0;
    char rows[MAX_COLOR_STR_LEN];
    char cols[MAX_COLOR_STR_LEN];
    char max_color[MAX_COLOR_STR_LEN];
-   int index;
+   char temp_color[MAX_COLOR_STR_LEN];
+   int index = 0;
+   int col_ind = 0;
 
-   // First while loop finds magic number value 
-   for (iter = 0; iter < MAGIC_NUM_LEN; iter++)
+   // Get first value
+   traverser = fgetc(file);
+   
+   // Locate magic number variable
+   do
    {
-      magic_num[iter] = fgetc(file);    
-   }
+      // If end of file is reached or white space is reached, break out of loop
+      if(feof(file) || isspace(traverser) || index == MAGIC_NUM_LEN)
+      {
+         // Set end of string value
+         magic_num[index] = '\0';
+
+         reading = FALSE;
+      }
+      // Otherwise append value to magic_num string
+      else
+      {
+         // Add character value
+         magic_num[index] = traverser;            
+
+         // Increment string index
+         index++;  
+      }
+
+      // Get current value
+      traverser = fgetc(file); 
+
+   } while(reading == TRUE);
 
    // Ensure magic num is correct
    if (strcmp(magic_num, "P3") == 0 || strcmp(magic_num, "P6") == 0)
    {
-      // Store magic number in heading struct
+      
+      // Store magic number and reinitialize reading variables
       strncpy(file_head->magic_number, magic_num, MAGIC_NUM_LEN);
+      reading = TRUE;
+      index = 0;
 
       // First, strip white space
-      while (isspace(traverser=fgetc(file)));
+      while (isspace(traverser))
+      {
+         traverser=fgetc(file);
+      }
 
       // Now, locate row size
       do
-      {       
+      {
          // If end of file is reached or white space is reached, break out of loop
-         if(feof(file) || isspace(traverser) || index == MAX_COLOR_STR_LEN - 1)
+         if(feof(file) || isspace(traverser) || index == MAX_COLOR_STR_LEN)
          {
             // Set end of string value
             rows[index] = '\0';
@@ -191,13 +243,16 @@ void store_header(FILE *file, header *file_head, char* type, int *result)
       index = 0;
 
       // First, strip white space
-      while (isspace(traverser=fgetc(file)));
+      while (isspace(traverser))
+      {
+         traverser=fgetc(file);
+      }
 
       // Now, search for column value
       do
       {       
          // If end of file is reached or white space is reached, break out of loop
-         if(feof(file) || isspace(traverser) || index == MAX_COLOR_STR_LEN - 1)
+         if(feof(file) || isspace(traverser) || index == MAX_COLOR_STR_LEN)
          {
             // Set end of string value
             cols[index] = '\0';
@@ -219,24 +274,25 @@ void store_header(FILE *file, header *file_head, char* type, int *result)
 
       } while(reading == TRUE);
 
-      printf("%d", atoi(cols));
-
       // Add variable to header and reset reader
       file_head->cols = atoi(cols);
       reading = TRUE;
       index = 0;
 
       // First, strip white space
-      while (isspace(traverser=fgetc(file)));
+      while (isspace(traverser))
+      {
+         traverser=fgetc(file);
+      }
 
       // Now, search for max color value
       do
-      {       
+      {    
          // If end of file is reached or white space is reached, break out of loop
-         if(feof(file) || isspace(traverser) || index == MAX_COLOR_STR_LEN - 1)
+         if(feof(file) || isspace(traverser) || index == MAX_COLOR_STR_LEN)
          {
             // Set end of string value
-            max_color[index] = '\0';
+            max_color[MAX_COLOR_STR_LEN] = '\0';
 
             reading = FALSE;
          }
@@ -247,25 +303,163 @@ void store_header(FILE *file, header *file_head, char* type, int *result)
             max_color[index] = traverser;            
 
             // Increment string index
-            index++;  
+            index++;
          }
 
          // Get current value
-         traverser = fgetc(file); 
+         traverser = fgetc(file);
 
       } while(reading == TRUE);
 
-      printf("%d", atoi(max_color));
-
       // Add variable to header and reset reader
       file_head->max_color_val = atoi(max_color);
-      
+      reading = TRUE;
+
+      // Now that we have rows and columns, set array size to number of rgb elements
+      file_content->content_num = file_head->rows * file_head->cols * 3;
+      file_content->content = malloc(file_content->content_num * sizeof(int));
+
+      // Store differently depending on file type
+      if (strcmp(file_head->magic_number, "P3") == 0)
+      {
+         do
+         {  
+            // Reset index value
+            index = 0;
+              
+            // If end of file is reached or white space is reached, break out of loop
+            if(feof(file))
+            {
+               reading = FALSE;
+            }
+            // Otherwise append value to max color string
+            else
+            {
+               // First, strip white space
+               while (isspace(traverser))
+               {
+                  traverser = fgetc(file);
+               }
+
+               // Now, search for next color
+               do
+               {    
+                  // If end of file is reached or white space is reached, break out of loop
+                  if(feof(file) || isspace(traverser))
+                  {
+                     // Set end of string value
+                     //temp_color[index] = '\0';
+                     break;
+                  }
+                  // Otherwise append value to max color string
+                  else
+                  {
+                     // Set end of string value
+                     temp_color[index] = traverser;
+                     index++;
+                     traverser = fgetc(file);
+                  }
+
+               } while(!feof(file));
+         
+               // Append color to int array
+               file_content->content[col_ind] = atoi(temp_color);
+
+               // Increment color value index
+               col_ind++;
+
+               // Null terminate temp string
+               temp_color[0] = '\0';
+            }
+
+         } while(reading == TRUE);
+      }
+      // Store character by character if P6 file
+      else
+      {
+         // Store while characters exist
+         do
+         {    
+            // Store character at current index
+            file_content->content[col_ind] = (int)traverser;
+            
+            // Store next character value
+            traverser = fgetc(file);
+
+            // Increment color counter
+            col_ind++;
+
+         } while(!feof(file));
+      }
+
+      // Now that the header has been read successfully, return success value
+      *result = RUN_SUCCESSFUL;
    }
    // If not, return error value
    else
    {
-      printf("ERROR\n");
       *result = WRONG_FILE_TYPE;
    }
 }
+
+// Method used to write file based on filetype
+void write_file(char *file_name, header *file_header, file_content *file_content, char *out_type, int *result)
+{
+   // Variable declarations
+   FILE *out_file;
+   int index = 0;
+   int row = 0;
+   int col = 0;
+
+   // Start by opening file
+   if ((out_file = fopen(file_name, "w")) != NULL)
+   {
+      // Start by handling p6 output
+      if (strcmp(out_type, "6") == 0)
+      {
+         // Start by writing header file
+         fprintf(out_file, "%s\n%d %d\n%d\n", "P6", file_header->rows, file_header->cols, file_header->max_color_val);
+         
+         // Loop through each character and put character value
+         for (index = 0; index < file_content->content_num; index++)
+         {
+            // Using the %c format converts the integer value to its ascii equivalent
+            fprintf(out_file, "%c", file_content->content[index]);
+         }
+      }
+      // Handle p3 output
+      else
+      {
+         // Start by writing header file
+         fprintf(out_file, "%s\n%d %d\n%d\n", "P3", file_header->rows, file_header->cols, file_header->max_color_val);
+         
+         // Loop through each character in the current row
+         for (row = 0; row < file_header->rows; row++)
+         {
+            // Loop through each character in the current column
+            for (col = 0; col < file_header->cols * 3; col++)
+            {
+               // Using the %d format converts the ascii value to its integer equivalent
+               fprintf(out_file, "%d ", file_content->content[index]);
+
+               index++;
+            }
+
+            // Append newline string to display new row
+            fprintf(out_file, "\n");
+         }
+      }
+
+      // Close file
+      fclose(out_file);
+   }
+   // If error occurs opening file, return error
+   else
+   {
+      *result = FILE_WRITE_ERR;
+   }
+}
+
+
+
 
